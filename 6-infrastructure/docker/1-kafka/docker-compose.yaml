@@ -1,0 +1,99 @@
+# Kafka Cluster - Dynamic Environment Configuration
+services:
+  kafka1:
+    image: kafka:3.6.1
+    build:
+      context: .
+    container_name: ${ENVIRONMENT:-development}-kafka1
+    hostname: ${ENVIRONMENT:-development}-kafka1  # ← ENVIRONMENT-SPECIFIC HOSTNAME
+    ports:
+      - "${KAFKA1_PORT:-9191}:9092"           
+      - "${KAFKA1_JMX_PORT:-9193}:9093"       
+      - "${KAFKA1_EXTERNAL_PORT:-19092}:19092" 
+    networks:
+      data-platform:
+        ipv4_address: ${KAFKA_IP_BASE}.11
+    volumes:
+      - ./config/kafka1/server.properties:/kafka/config/server.properties
+      - ./data/${ENVIRONMENT:-development}/kafka1/:/data/kafka/  # ← ENVIRONMENT-SPECIFIC DATA PATH
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: "EfDXANVLQoKECKCwoSn9mA"
+    command: >
+      bash -c "
+        if [ ! -f /data/kafka/meta.properties ]; then
+          echo 'Formatting storage directory for Kafka 1 (${ENVIRONMENT:-development})'
+          /kafka/bin/kafka-storage.sh format -t $$CLUSTER_ID -c /kafka/config/server.properties
+        fi
+        /kafka/bin/kafka-server-start.sh /kafka/config/server.properties
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  kafka2:
+    image: kafka:3.6.1
+    build:
+      context: .
+    container_name: ${ENVIRONMENT:-development}-kafka2
+    hostname: ${ENVIRONMENT:-development}-kafka2  # ← ENVIRONMENT-SPECIFIC HOSTNAME
+    ports:
+      - "${KAFKA2_PORT:-9292}:9092"           
+      - "${KAFKA2_JMX_PORT:-9293}:9093"       
+      - "${KAFKA2_EXTERNAL_PORT:-29092}:29092" 
+    networks:
+      data-platform:
+        ipv4_address: ${KAFKA_IP_BASE}.12
+    volumes:
+      - ./config/kafka2/server.properties:/kafka/config/server.properties
+      - ./data/${ENVIRONMENT:-development}/kafka2/:/data/kafka/  # ← ENVIRONMENT-SPECIFIC DATA PATH
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: "EfDXANVLQoKECKCwoSn9mA"
+    command: >
+      bash -c "
+        if [ ! -f /data/kafka/meta.properties ]; then
+          echo 'Formatting storage directory for Kafka 2 (${ENVIRONMENT:-development})'
+          /kafka/bin/kafka-storage.sh format -t $$CLUSTER_ID -c /kafka/config/server.properties
+        fi
+        /kafka/bin/kafka-server-start.sh /kafka/config/server.properties
+      "
+    depends_on:
+      - kafka1
+
+  kafka3:
+    image: kafka:3.6.1
+    build:
+      context: .
+    container_name: ${ENVIRONMENT:-development}-kafka3
+    hostname: ${ENVIRONMENT:-development}-kafka3  # ← ENVIRONMENT-SPECIFIC HOSTNAME
+    ports:
+      - "${KAFKA3_PORT:-9392}:9092"           
+      - "${KAFKA3_JMX_PORT:-9393}:9093"       
+      - "${KAFKA3_EXTERNAL_PORT:-39092}:39092" 
+    networks:
+      data-platform:
+        ipv4_address: ${KAFKA_IP_BASE}.13
+    volumes:
+      - ./config/kafka3/server.properties:/kafka/config/server.properties
+      - ./data/${ENVIRONMENT:-development}/kafka3/:/data/kafka/  # ← ENVIRONMENT-SPECIFIC DATA PATH
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: "EfDXANVLQoKECKCwoSn9mA"
+    command: >
+      bash -c "
+        if [ ! -f /data/kafka/meta.properties ]; then
+          echo 'Formatting storage directory for Kafka 3 (${ENVIRONMENT:-development})'
+          /kafka/bin/kafka-storage.sh format -t $$CLUSTER_ID -c /kafka/config/server.properties
+        fi
+        /kafka/bin/kafka-server-start.sh /kafka/config/server.properties
+      "
+    depends_on:
+      - kafka1
+      - kafka2

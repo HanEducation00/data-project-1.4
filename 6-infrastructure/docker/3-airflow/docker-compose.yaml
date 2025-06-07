@@ -1,0 +1,204 @@
+# Airflow - Dynamic Port Configuration
+x-airflow-common: &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME:-my-airflow-image-1}
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment:
+    # Core Ayarlar
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+    - AIRFLOW__CORE__FERNET_KEY=FB0o_zt4e3Ziq3LdUUO7F2Z95cvFFx16hU8jTeR1ASM=
+    - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+    - AIRFLOW__WEBSERVER__RBAC=True
+    - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+    
+    # Connection Strings
+    - AIRFLOW_CONN_KAFKA_DEFAULT=kafka://kafka1:9092,kafka2:9092,kafka3:9092
+    - AIRFLOW_CONN_POSTGRES_DEFAULT=postgres://datauser:datapass@postgres:5432/datawarehouse
+    - AIRFLOW_CONN_SPARK_DEFAULT=spark://spark-master:7077
+    - AIRFLOW_CONN_MLFLOW_DEFAULT=http://mlflow-server:5000
+    
+    # Standard Settings
+    - JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+    - AIRFLOW__WEBSERVER__SECRET_KEY=2c0a969d65d22ab8dde0cffc4a38479e
+    - AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL=5
+    - AIRFLOW__WEBSERVER__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+    - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    - AIRFLOW__FAB__UPDATE_FAB_PERMS=True
+    - AIRFLOW__WEBSERVER__DEFAULT_DAG_RUN_DISPLAY_NUMBER=25
+    - AIRFLOW__WEBSERVER__HIDE_PAUSED_DAGS_BY_DEFAULT=False
+    - AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE=UTC
+    
+    # ✅ STATIC VALUES (Expansion yok!)
+    - AIRFLOW__WEBSERVER__INSTANCE_NAME=Development
+    - AIRFLOW__WEBSERVER__NAVBAR_COLOR=#007A87
+    - AIRFLOW__ASTRONOMER__ANALYTICS_ENABLED=False
+    - ASTRONOMER__ANALYTICS__ENABLED=False
+    
+    # ✅ DAG Discovery Settings (Sıralama önemli!)
+    - AIRFLOW__CORE__STORE_DAG_CODE=True
+    - AIRFLOW__WEBSERVER__SHOW_RECENT_STATS_FOR_COMPLETED_RUNS=True
+    - AIRFLOW__WEBSERVER__RELOAD_ON_PLUGIN_CHANGE=True
+    - AIRFLOW__CORE__DAG_DISCOVERY_SAFE_MODE=False
+  
+  volumes:
+    - ../../../3-workflows:/usr/local/airflow/dags
+    - ../../../logs/airflow:/usr/local/airflow/logs
+    - ./plugins:/usr/local/airflow/plugins
+    - ./config:/usr/local/airflow/config
+    - ../../../2-src:/workspace
+    - ../../../models:/models
+  restart: unless-stopped
+
+
+services:
+  airflow-postgres:
+    image: postgres:16
+    container_name: ${ENVIRONMENT:-development}-airflow-postgres
+    hostname: airflow-postgres
+    networks:
+      data-platform:
+        ipv4_address: ${AIRFLOW_IP_BASE}.11
+    ports:
+      - "${AIRFLOW_POSTGRES_PORT:-5433}:5432"          # ← DİNAMİK!
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: ${ENVIRONMENT:-development}-airflow-init
+    user: "0:0"
+    networks:
+      data-platform:
+        ipv4_address: ${AIRFLOW_IP_BASE}.15
+    entrypoint: ["/bin/bash"]
+    command:
+      - -c
+      - |
+        echo "=== Airflow Init Starting ==="
+        
+        # Create directories with proper permissions
+        mkdir -p /usr/local/airflow/logs /usr/local/airflow/dags /usr/local/airflow/plugins
+        chmod -R 777 /usr/local/airflow/logs /usr/local/airflow/dags /usr/local/airflow/plugins
+        chown -R 50000:0 /usr/local/airflow/logs /usr/local/airflow/dags /usr/local/airflow/plugins
+        
+        echo "Waiting for PostgreSQL to be ready..."
+        while ! nc -z airflow-postgres 5432; do
+          sleep 2
+        done
+        
+        echo "Initializing database..."
+        airflow db init
+        airflow db upgrade
+        
+        echo "Creating roles..."
+        airflow roles create Admin || echo "Admin role already exists"
+        airflow roles create Viewer || echo "Viewer role already exists"
+        airflow roles create User || echo "User role already exists"
+        airflow roles create Op || echo "Op role already exists"
+        
+        # ✅ FIX: İlk sync-perm (roles'dan sonra)
+        echo "Synchronizing FAB permissions (initial)..."
+        airflow sync-perm
+        
+        # ✅ FIX: Admin user'ı her seferinde yeniden oluştur
+        echo "Recreating admin user with proper permissions..."
+        airflow users delete --username admin 2>/dev/null || echo "Admin user didn't exist"
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@${ENVIRONMENT:-dev}.local
+        
+        # ✅ FIX: Final sync-perm (user'dan sonra)  
+        echo "Synchronizing FAB permissions (final)..."
+        airflow sync-perm
+        
+        echo "=== Airflow Init completed ==="
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: ${ENVIRONMENT:-development}-airflow-webserver
+    hostname: airflow-webserver
+    networks:
+      data-platform:
+        ipv4_address: ${AIRFLOW_IP_BASE}.10
+    entrypoint: ["/bin/bash"]
+    command:
+      - -c
+      - |
+        echo "=== Starting Airflow Webserver ==="
+        
+        echo "Waiting for database initialization..."
+        while ! airflow db check; do
+          sleep 5
+          echo "Waiting for database to be ready..."
+        done
+        
+        echo "Ensuring FAB permissions are up-to-date..."
+        airflow sync-perm
+        
+        echo "Starting webserver on port ${AIRFLOW_WEBSERVER_PORT:-8088}..."
+        exec airflow webserver --port ${AIRFLOW_WEBSERVER_PORT:-8088}    # ← DİNAMİK!
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT:-8088}:${AIRFLOW_WEBSERVER_PORT:-8088}"  # ← DİNAMİK!
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:${AIRFLOW_WEBSERVER_PORT:-8088}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: ${ENVIRONMENT:-development}-airflow-scheduler
+    hostname: airflow-scheduler
+    networks:
+      data-platform:
+        ipv4_address: ${AIRFLOW_IP_BASE}.12
+    entrypoint: ["/bin/bash"]
+    command:
+      - -c
+      - |
+        echo "=== Starting Airflow Scheduler ==="
+        
+        echo "Waiting for database initialization..."
+        while ! airflow db check; do
+          sleep 5
+          echo "Waiting for database to be ready..."
+        done
+        
+        echo "Starting scheduler..."
+        exec airflow scheduler
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+# Volumes
+volumes:
+  airflow-postgres-data:
+    driver: local
