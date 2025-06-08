@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Database ve Spark Bağlantı Fonksiyonları
-
 Bu modül PostgreSQL ve Spark bağlantılarını yönetir.
 """
 
@@ -11,6 +10,12 @@ import os
 from .config import POSTGRES_CONFIG, SPARK_CONFIG, JDBC_URL, JDBC_PROPERTIES
 from .logger import get_logger
 
+"""
+Yine aynı paketteki logger.py dosyasından get_logger fonksiyonunu import eder
+Bu fonksiyon, log mesajlarını yazmak için kullanılacak bir logger nesnesi oluşturur
+Hata ayıklama, bilgi mesajları ve uyarılar için kullanılır
+"""
+
 logger = get_logger(__name__)
 
 # Global Spark session
@@ -18,15 +23,15 @@ _spark_session = None
 
 def get_spark_session():
     """
-    Spark session oluştur ve döndür (eski çalışan kod ayarları)
+    Spark session oluştur ve döndür
+    Loglama: logger nesnesinin info metodu çağrılır.
+    Bu işlem, belirtilen mesajı log dosyasına ve konsola yazar.
+    Bilgilendirme amaçlıdır, kodun ne yaptığını takip etmeyi kolaylaştırır.
     
-    Returns:
-        SparkSession: Yapılandırılmış Spark session
     """
     logger.info("Spark session oluşturuluyor...")
     
     try:
-        # Eski çalışan kodun ayarları
         spark = SparkSession.builder \
             .appName("Electricity Load Forecasting") \
             .config("spark.jars.packages", "org.postgresql:postgresql:42.6.0") \
@@ -119,17 +124,25 @@ def create_table_if_not_exists(table_schema):
         )
         
         cursor = conn.cursor()
-        
+        """
+        Cursor Oluşturma: Veritabanı komutlarını çalıştırmak için bir imleç (cursor) oluşturuluyor.
+        Cursor, SQL sorgularını yürütmek için kullanılan bir arabirimdir.
+        """
         # Tabloyu oluştur
+        """
+         strip(): Baştaki ve sondaki boşlukları temizler.
+         split(';'): Metni noktalı virgülle böler ve bir listeye dönüştürür.
+        """
         sql_statements = table_schema.strip().split(';')
-        
+
+        #sql = sql.strip() ifadesi, bir string'in (metin değişkeninin) başındaki ve sonundaki boşlukları temizleyen bir işlemdir.
         for sql in sql_statements:
             sql = sql.strip()
             if sql and not sql.startswith('--'):  # Boş ve comment satırları atla
                 logger.debug(f"SQL çalıştırılıyor: {sql[:50]}...")
                 cursor.execute(sql)
         
-        # INDEX'leri oluştur - BU KISIM EKLENDİ
+        # INDEX'leri oluştur.
         from ..schemas import POSTGRES_INDEXES
         
         for index_sql in POSTGRES_INDEXES:
@@ -142,6 +155,8 @@ def create_table_if_not_exists(table_schema):
         
         # Değişiklikleri kaydet
         conn.commit()
+        #Commit: Yapılan değişiklikleri veritabanına kalıcı olarak kaydeder.
+        #Temizlik: Cursor ve connection kapatılarak kaynaklar serbest bırakılır.
         cursor.close()
         conn.close()
         
@@ -193,27 +208,4 @@ def cleanup_connections():
     stop_spark_session()
     logger.info("Tüm bağlantılar temizlendi")
 
-# Backward compatibility için
-def get_spark_manager():
-    """Eski API uyumluluğu için"""
-    class SparkManager:
-        def get_spark_session(self):
-            return get_spark_session()
-        def stop_spark_session(self):
-            return stop_spark_session()
-    
-    return SparkManager()
 
-def get_postgres_manager():
-    """Eski API uyumluluğu için"""
-    class PostgresManager:
-        def test_connection(self):
-            return test_postgresql_connection()
-        def table_exists(self, table_name):
-            return table_exists(table_name)
-        def write_dataframe(self, df, table_name, mode="append"):
-            return write_dataframe_to_postgresql(df, table_name, mode)
-        def get_table_count(self, table_name):
-            return get_table_count(table_name)
-    
-    return PostgresManager()

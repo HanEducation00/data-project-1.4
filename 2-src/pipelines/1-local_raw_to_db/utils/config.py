@@ -42,7 +42,20 @@ DATA_CONFIG = {
 # Veritabanı tablo ismi
 TABLE_NAME = "raw_load_data"
 
+
+
+
 # Batch işleme konfigürasyonu
+"""
+batch_size (10000):
+Bu, verilerin veritabanına yazılırken kaç satırın bir grup olarak işleneceğini belirler.
+Tüm veriyi (belki milyonlarca satır) bir seferde işlemek yerine,
+10,000 satırlık gruplar halinde işlemek bellek kullanımını iyileştirir.
+
+repartition_count (4):
+PySpark'ta "partition", verinin paralel işlenebilen parçalara bölünmesidir
+4 partition, verinin 4 farklı işlem birimine dağıtılacağı anlamına gelir
+"""
 BATCH_CONFIG = {
     "batch_size": 10000,  # Her batch'te kaç satır işlenecek
     "repartition_count": 4  # DataFrame kaç partition'a bölünecek
@@ -56,6 +69,8 @@ def get_sample_days():
     
     for start_day in month_starts:
         # Her aydan 8 gün seç
+        # range(başlangıç, bitiş, artış_miktarı)
+        # [:8] ilk sekiz günü alır.
         month_days = list(range(start_day, start_day + 30, 4))[:8]
         sample_days.extend(month_days)
     

@@ -10,7 +10,7 @@ import sys
 import os
 from datetime import datetime
 
-# Pipeline modüllerini import et
+# Pipeline modüllerini import et - GÖRECELI DEĞIL MUTLAK IMPORT
 from .utils.config import DATA_CONFIG, POSTGRES_CONFIG, TABLE_NAME
 from .utils.logger import get_logger, log_pipeline_start, log_pipeline_end
 from .utils.connections import cleanup_connections
@@ -55,6 +55,9 @@ def main():
         cleanup_connections()
         log_pipeline_end()
 
-if __name__ == "__main__":
+def run_from_command_line():
     exit_code = main()
     sys.exit(exit_code)
+
+if __name__ == "__main__":
+    run_from_command_line()

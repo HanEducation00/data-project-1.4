@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Loglama Yöneticisi
-
-Bu modül pipeline için merkezi loglama sistemi sağlar.
+Bu modül, uygulamanın çalışması sırasında neler olduğunu kaydetmek, hataları izlemek ve işlem durumunu takip etmek için kullanılır.
 """
 
 import logging

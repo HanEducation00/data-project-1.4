@@ -112,13 +112,14 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 # Development
 docker-compose --env-file .env.development up -d
+docker-compose --env-file .env.development down
 
 # Staging  
 docker-compose --env-file .env.staging up -d
-
+docker-compose --env-file .env.staging down
 # Production
 docker-compose --env-file .env.production up -d
-
+docker-compose --env-file .env.production down
 # Kontrol
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep kafka
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep spark

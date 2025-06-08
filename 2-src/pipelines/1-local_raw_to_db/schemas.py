@@ -9,6 +9,7 @@ Bu dosya ham yük verisi için PySpark ve PostgreSQL şemalarını tanımlar.
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, TimestampType
 
 # Spark DataFrame Schema
+# Dosyadan okunan verileri bu yapıya dönüştürürüz
 RAW_LOAD_SCHEMA = StructType([
     StructField("customer_id", StringType(), False),
     StructField("profile_type", StringType(), True),
