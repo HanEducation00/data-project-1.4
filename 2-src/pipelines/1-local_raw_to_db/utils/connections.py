@@ -9,7 +9,7 @@ from pyspark.sql import SparkSession
 import os
 from .config import POSTGRES_CONFIG, SPARK_CONFIG, JDBC_URL, JDBC_PROPERTIES
 from .logger import get_logger
-
+from ..schemas import POSTGRES_INDEXES
 """
 Yine aynı paketteki logger.py dosyasından get_logger fonksiyonunu import eder
 Bu fonksiyon, log mesajlarını yazmak için kullanılacak bir logger nesnesi oluşturur
@@ -142,8 +142,6 @@ def create_table_if_not_exists(table_schema):
                 logger.debug(f"SQL çalıştırılıyor: {sql[:50]}...")
                 cursor.execute(sql)
         
-        # INDEX'leri oluştur.
-        from ..schemas import POSTGRES_INDEXES
         
         for index_sql in POSTGRES_INDEXES:
             try:

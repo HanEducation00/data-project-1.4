@@ -153,3 +153,21 @@ FROM kafka_raw_data
 GROUP BY DATE(full_timestamp)
 ORDER BY data_date DESC
 LIMIT 10;
+
+
+#### 1-local_raw_to_db çalıştırma komutları
+cd /workspace
+export PYTHONPATH=/workspace:$PYTHONPATH
+python -m pipelines.1-local_raw_to_db.main
+
+psql -h localhost -p 5432 -U datauser -d datawarehouse
+
+Username: datauser
+Password: datapass
+Database: datawarehouse
+
+SELECT * FROM raw_load_data LIMIT 5;
+
+SELECT customer_id, profile_type, day_num, hour, minute, load_percentage, full_timestamp 
+FROM raw_load_data 
+LIMIT 5;

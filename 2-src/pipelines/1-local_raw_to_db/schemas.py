@@ -18,7 +18,7 @@ RAW_LOAD_SCHEMA = StructType([
     StructField("minute", IntegerType(), False),
     StructField("interval_idx", IntegerType(), False),
     StructField("load_percentage", FloatType(), True),
-    StructField("full_timestamp", TimestampType(), False)
+    StructField("full_timestamp", TimestampType(), True)
 ])
 
 # PostgreSQL Tablo Schema (INDEX'ler kaldırıldı)
