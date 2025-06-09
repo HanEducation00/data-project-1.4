@@ -180,10 +180,10 @@ def prepare_ml_dataset(daily_df, feature_columns, test_days=None):
     logger.info(f"   🔍 Doğrulama: {val_count} gün ({val_count/total_rows*100:.1f}%)")
     logger.info(f"   🧪 Test: {test_count} gün ({test_count/total_rows*100:.1f}%)")
     
-    # Tarih aralıklarını göster
-    train_dates = train_df.select(min("date").alias("start"), max("date").alias("end")).collect()[0]
-    val_dates = val_df.select(min("date").alias("start"), max("date").alias("end")).collect()[0]
-    test_dates = test_df.select(min("date").alias("start"), max("date").alias("end")).collect()[0]
+    # Tarih aralıklarını göster - ✅ DÜZELTME: spark_min ve spark_max kullan
+    train_dates = train_df.select(spark_min("date").alias("start"), spark_max("date").alias("end")).collect()[0]
+    val_dates = val_df.select(spark_min("date").alias("start"), spark_max("date").alias("end")).collect()[0]
+    test_dates = test_df.select(spark_min("date").alias("start"), spark_max("date").alias("end")).collect()[0]
     
     logger.info(f"   📅 Eğitim tarihleri: {train_dates['start']} - {train_dates['end']}")
     logger.info(f"   📅 Doğrulama tarihleri: {val_dates['start']} - {val_dates['end']}")

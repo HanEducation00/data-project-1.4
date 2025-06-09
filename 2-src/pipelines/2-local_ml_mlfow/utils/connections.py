@@ -8,13 +8,18 @@ Bu modül PostgreSQL, Spark ve MLflow bağlantılarını yönetir.
 import os
 import json
 import mlflow
+import psycopg2
+from psycopg2.extras import Json
+from pyspark.sql.functions import expr
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, current_timestamp
+from pyspark.sql.functions import col, lit, current_timestamp, when, abs  # ✅ when ve abs eklendi
+from pyspark.sql.types import DateType  # ✅ DateType eklendi
 from .config import (
     POSTGRES_CONFIG, SPARK_CONFIG, MLFLOW_CONFIG, 
     JDBC_URL, JDBC_PROPERTIES, TABLE_NAMES, TABLE_SCHEMAS, POSTGRES_INDEXES
 )
 from utils.logger import get_logger
+
 
 logger = get_logger(__name__)
 
@@ -312,20 +317,23 @@ def save_predictions_to_db(predictions_df, run_id, model_version):
             .withColumn("run_id", lit(run_id)) \
             .withColumn("model_version", lit(model_version))
         
+        # ✅ DÜZELTME: Tarih kolonunu DATE tipine dönüştür
+        enriched_df = enriched_df.withColumn("date", col("date").cast(DateType()))
+        
         # Günlük tahminleri kaydet
         result1 = write_dataframe_to_postgresql(
             enriched_df.select(
                 "run_id", "model_version", "date", 
-                "total_daily_energy", "prediction"
-            ).withColumnRenamed("total_daily_energy", "actual_energy")
-             .withColumnRenamed("prediction", "predicted_energy"),
+                col("total_daily_energy").alias("actual_energy"),
+                col("prediction").alias("predicted_energy")
+            ),
             "daily_predictions"
         )
         
         # Hata metriklerini hesapla ve kaydet
         error_df = enriched_df.withColumn(
             "absolute_error", 
-            col("prediction") - col("total_daily_energy")
+            abs(col("prediction") - col("total_daily_energy"))  # ✅ abs() kullanıldı
         ).withColumn(
             "percentage_error", 
             (col("prediction") - col("total_daily_energy")) / col("total_daily_energy") * 100
@@ -335,7 +343,7 @@ def save_predictions_to_db(predictions_df, run_id, model_version):
         ).withColumn(
             "error_category",
             when(abs(col("percentage_error")) < 5, "Düşük")
-            .when(abs(col("percentage_error")) < 15, "Orta")
+            .when(abs(col("percentage_error")) < 15, "Orta")  # ✅ when() artık tanımlı
             .otherwise("Yüksek")
         )
         
@@ -388,16 +396,16 @@ def save_model_metrics_to_db(metrics, feature_importance, feature_columns, run_i
         metrics_data = [{
             "run_id": run_id,
             "model_version": model_version,
-            "train_r2": metrics.get("train_r2", 0.0),
-            "val_r2": metrics.get("val_r2", 0.0),
-            "test_r2": metrics.get("test_r2", 0.0),
-            "train_rmse": metrics.get("train_rmse", 0.0),
-            "val_rmse": metrics.get("val_rmse", 0.0),
-            "test_rmse": metrics.get("test_rmse", 0.0),
-            "train_mae": metrics.get("train_mae", 0.0),
-            "val_mae": metrics.get("val_mae", 0.0),
-            "test_mae": metrics.get("test_mae", 0.0),
-            "training_time": metrics.get("training_time", 0.0),
+            "train_r2": float(metrics.get("train_r2", 0.0)),  # ✅ float() dönüşümü
+            "val_r2": float(metrics.get("val_r2", 0.0)),
+            "test_r2": float(metrics.get("test_r2", 0.0)),
+            "train_rmse": float(metrics.get("train_rmse", 0.0)),
+            "val_rmse": float(metrics.get("val_rmse", 0.0)),
+            "test_rmse": float(metrics.get("test_rmse", 0.0)),
+            "train_mae": float(metrics.get("train_mae", 0.0)),
+            "val_mae": float(metrics.get("val_mae", 0.0)),
+            "test_mae": float(metrics.get("test_mae", 0.0)),
+            "training_time": float(metrics.get("training_time", 0.0)),
             "total_features": len(feature_columns)
         }]
         
@@ -453,36 +461,93 @@ def register_model_in_db(run_id, model_version, hyperparams, description=None):
         if not create_table_if_not_exists("model_registry"):
             return False
         
-        # Hiperparametreleri JSON formatına dönüştür
-        hyperparams_json = json.dumps(hyperparams)
-        
         # Şu anki zamanı al
         import datetime
         current_time = datetime.datetime.now().isoformat()
         
-        # Model kayıt verilerini oluştur
+        # ✅ DÜZELTME: DataFrame'de hyperparameters'ı JSON string olarak oluştur
+        # ve PostgreSQL'e yazarken cast et
         registry_data = [{
             "run_id": run_id,
             "model_version": model_version,
             "model_name": MLFLOW_CONFIG["model_name"],
             "training_date": current_time,
             "description": description or f"Sistem enerji tahmini modeli v{model_version}",
-            "hyperparameters": hyperparams_json,
+            "hyperparameters": json.dumps(hyperparams),  # JSON string olarak hazır
             "mlflow_uri": f"{MLFLOW_CONFIG['tracking_uri']}/experiments/{run_id}",
             "local_path": f"{MLFLOW_CONFIG['local_model_path']}/energy_forecaster_v{model_version}",
             "is_production": False
         }]
         
         registry_df = spark.createDataFrame(registry_data)
-        write_dataframe_to_postgresql(registry_df, "model_registry")
         
-        logger.info(f"✅ Model veritabanı kayıt sistemine eklendi")
-        return True
+
+        registry_df = registry_df.withColumn(
+            "hyperparameters", 
+            expr("CAST(hyperparameters AS STRING)").cast("string")
+        )
+        
+        # ✅ ALTERNATIF: Özel JDBC write options kullan
+        table_name = TABLE_NAMES.get("model_registry")
+        
+        # Manuel JDBC yazma ile casting
+        try:
+            registry_df.write \
+                .mode("append") \
+                .option("driver", JDBC_PROPERTIES["driver"]) \
+                .option("user", JDBC_PROPERTIES["user"]) \
+                .option("password", JDBC_PROPERTIES["password"]) \
+                .option("stringtype", "unspecified") \
+                .jdbc(JDBC_URL, table_name)
+            
+            logger.info(f"✅ Model veritabanı kayıt sistemine eklendi")
+            return True
+            
+        except Exception as jdbc_error:
+            logger.warning(f"⚠️ JDBC yazma hatası, psycopg2 ile deneniyor: {jdbc_error}")
+            
+
+            
+            conn = psycopg2.connect(
+                host=POSTGRES_CONFIG["host"],
+                port=POSTGRES_CONFIG["port"],
+                database=POSTGRES_CONFIG["database"],
+                user=POSTGRES_CONFIG["user"],
+                password=POSTGRES_CONFIG["password"]
+            )
+            
+            cursor = conn.cursor()
+            
+            # JSONB ile INSERT
+            insert_sql = """
+            INSERT INTO ml_model_registry 
+            (run_id, model_version, model_name, training_date, description, 
+             hyperparameters, mlflow_uri, local_path, is_production)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_sql, (
+                run_id,
+                model_version,
+                MLFLOW_CONFIG["model_name"],
+                current_time,
+                description or f"Sistem enerji tahmini modeli v{model_version}",
+                Json(hyperparams),  # psycopg2 Json wrapper kullan
+                f"{MLFLOW_CONFIG['tracking_uri']}/experiments/{run_id}",
+                f"{MLFLOW_CONFIG['local_model_path']}/energy_forecaster_v{model_version}",
+                False
+            ))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"✅ Model veritabanı kayıt sistemine eklendi (psycopg2 ile)")
+            return True
         
     except Exception as e:
         logger.error(f"❌ Model kaydetme hatası: {e}")
         return False
-
 def get_table_count(table_type):
     """
     Tablodaki kayıt sayısını getir

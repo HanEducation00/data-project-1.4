@@ -52,12 +52,26 @@ def log_to_mlflow(metrics, feature_columns, importance_dict, hyperparams, model=
         # Hiperparametreleri kaydet
         logger.info("⚙️ Hiperparametreleri kaydediliyor...")
         for param, value in hyperparams.items():
+            # ✅ DÜZELTME: Date objelerini string'e dönüştür
+            if hasattr(value, 'strftime'):  # datetime objesi ise
+                value = value.strftime('%Y-%m-%d')
             mlflow.log_param(param, value)
         
         # Metrikleri kaydet
         logger.info("📏 Performans metriklerini kaydediliyor...")
         for metric, value in metrics.items():
-            mlflow.log_metric(metric, value)
+            # ✅ DÜZELTME: Sadece sayısal değerleri metrik olarak kaydet
+            try:
+                if isinstance(value, (int, float)):
+                    mlflow.log_metric(metric, float(value))
+                elif isinstance(value, str):
+                    # String değerleri parametre olarak kaydet
+                    mlflow.log_param(f"info_{metric}", value)
+                else:
+                    # Diğer tipleri string'e dönüştürüp parametre olarak kaydet
+                    mlflow.log_param(f"info_{metric}", str(value))
+            except Exception as e:
+                logger.warning(f"⚠️ {metric} metriği kaydedilemedi: {e}")
         
         # Özellik bilgilerini kaydet
         logger.info("🧩 Özellik bilgilerini kaydediliyor...")
@@ -66,7 +80,10 @@ def log_to_mlflow(metrics, feature_columns, importance_dict, hyperparams, model=
         
         # Özellik önemlerini kaydet
         for feature, importance in importance_dict.items():
-            mlflow.log_metric(f"feature_importance_{feature}", importance)
+            try:
+                mlflow.log_metric(f"feature_importance_{feature}", float(importance))
+            except Exception as e:
+                logger.warning(f"⚠️ {feature} özellik önemliliği kaydedilemedi: {e}")
         
         # Model kaydetme
         if model is not None:
